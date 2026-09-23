@@ -1,0 +1,42 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: easyworkup
+      POSTGRES_PASSWORD: easyworkup
+      POSTGRES_DB: easyworkup
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+
+  minio:
+    image: minio/minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: easyworkup
+      MINIO_ROOT_PASSWORD: easyworkup123
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # веб-консоль
+    volumes:
+      - minio-data:/data
+
+  # Песочница для исполнения кода в live-кодинге (Judge0). Раскомментировать при
+  # подключении модуля Interview: image судья требует отдельного compose-файла
+  # judge0 (несколько сервисов) — см. https://github.com/judge0/judge0.
+  # judge0:
+  #   image: judge0/judge0:1.13.1
+  #   ports:
+  #     - "2358:2358"
+
+volumes:
+  postgres-data:
+  minio-data:

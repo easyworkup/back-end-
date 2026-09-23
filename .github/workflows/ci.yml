@@ -1,0 +1,97 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: easyworkup
+          POSTGRES_PASSWORD: easyworkup
+          POSTGRES_DB: easyworkup
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7
+        ports: ["6379:6379"]
+
+    env:
+      DATABASE_URL: postgresql://easyworkup:easyworkup@localhost:5432/easyworkup?schema=public
+      REDIS_URL: redis://localhost:6379
+      JWT_ACCESS_SECRET: ci-secret
+      JWT_REFRESH_SECRET: ci-secret-2
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Prisma generate
+        run: pnpm prisma generate
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Build
+        run: pnpm build
+
+      - name: Test
+        run: pnpm test
+
+      # Публикуем openapi.json артефактом — фронт может забрать его в своей CI
+      # для codegen, не поднимая бэк целиком.
+      - name: Generate OpenAPI spec
+        run: pnpm generate:openapi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openapi
+          path: openapi.json
+
+  deploy:
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      # Прод — VPS через Coolify (см. ТЗ, раздел «Технологический стек»). Coolify
+      # умеет билдить и деплоить по вебхуку на пуш — секрет COOLIFY_DEPLOY_WEBHOOK
+      # нужно добавить в Settings → Secrets and variables → Actions этого репозитория
+      # (Coolify → приложение → Webhooks выдаёт URL). Пока секрета нет, шаг просто
+      # ничего не делает, чтобы не ронять CI на неготовой инфраструктуре.
+      - name: Trigger Coolify deploy
+        if: env.COOLIFY_DEPLOY_WEBHOOK != ''
+        env:
+          COOLIFY_DEPLOY_WEBHOOK: ${{ secrets.COOLIFY_DEPLOY_WEBHOOK }}
+        run: curl -fsSL -X POST "$COOLIFY_DEPLOY_WEBHOOK"
+
+      - name: Skip (no webhook configured yet)
+        if: env.COOLIFY_DEPLOY_WEBHOOK == ''
+        env:
+          COOLIFY_DEPLOY_WEBHOOK: ${{ secrets.COOLIFY_DEPLOY_WEBHOOK }}
+        run: echo "COOLIFY_DEPLOY_WEBHOOK не задан — деплой пропущен, см. комментарий выше"

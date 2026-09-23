@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.env
+.env.local
+
+# Генерируемая OpenAPI-спека — источник истины это код (Zod DTO), не файл.
+# Фронт получает её через `pnpm generate:openapi` + codegen на своей стороне,
+# либо напрямую с запущенного дев-сервера (/api-json).
+openapi.json
+
+*.log
+coverage/
+.DS_Store

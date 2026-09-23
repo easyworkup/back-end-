@@ -1,0 +1,187 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// --- Пользователи и направления ---
+model User {
+  id           String             @id @default(uuid())
+  email        String             @unique
+  passwordHash String
+  createdAt    DateTime           @default(now())
+  resumes      Resume[]
+  roadmaps     UserRoadmap[]
+  sessions     InterviewSession[]
+}
+
+model Direction {
+  id        String            @id @default(uuid())
+  slug      String            @unique // "frontend", "backend", "devops"...
+  title     String
+  skills    Skill[]
+  vacancies VacancySnapshot[]
+}
+
+// --- Роадмап ---
+model Skill {
+  id          String   @id @default(uuid())
+  directionId String
+  direction   Direction @relation(fields: [directionId], references: [id])
+  title       String
+  parentId    String?  // дерево навыков (roadmap.sh-структура)
+  parent      Skill?   @relation("SkillTree", fields: [parentId], references: [id])
+  children    Skill[]  @relation("SkillTree")
+  hhKeywords  String[] // ключевые слова для сопоставления с hh.ru
+  demandScore Float?   // доля вакансий с этим навыком, считается ETL'ом
+  tasks       RoadmapTask[]
+}
+
+model UserRoadmap {
+  id          String              @id @default(uuid())
+  userId      String
+  user        User                @relation(fields: [userId], references: [id])
+  directionId String
+  progress    UserSkillProgress[]
+  tasks       UserTaskProgress[]
+  createdAt   DateTime            @default(now())
+}
+
+model UserSkillProgress {
+  id        String      @id @default(uuid())
+  roadmapId String
+  roadmap   UserRoadmap @relation(fields: [roadmapId], references: [id])
+  skillId   String
+  status    SkillStatus // NONE | PARTIAL | DONE
+  source    String?     // "resume-match" | "manual" | "interview-result"
+}
+
+enum SkillStatus {
+  NONE
+  PARTIAL
+  DONE
+}
+
+// --- Задачи внутри узла роадмапа ---
+model RoadmapTask {
+  id               String             @id @default(uuid())
+  skillId          String
+  skill            Skill              @relation(fields: [skillId], references: [id])
+  title            String
+  taskType         TaskType // READING | VIDEO | EXERCISE | PROJECT
+  sourceLabel      String             // "react.dev", "Хекслет"...
+  sourceUrl        String?
+  estimatedHours   Float              // калибруется джобом по факту ниже
+  completionsCount Int                @default(0) // сколько раз задание отмечено выполненным — порог калибровки
+  progress         UserTaskProgress[]
+}
+
+enum TaskType {
+  READING
+  VIDEO
+  EXERCISE
+  PROJECT
+}
+
+model UserTaskProgress {
+  id          String      @id @default(uuid())
+  roadmapId   String
+  roadmap     UserRoadmap @relation(fields: [roadmapId], references: [id])
+  taskId      String
+  task        RoadmapTask @relation(fields: [taskId], references: [id])
+  done        Boolean     @default(false)
+  actualHours Float?
+  completedAt DateTime?
+}
+
+// --- Резюме ---
+model Resume {
+  id          String               @id @default(uuid())
+  userId      String
+  user        User                 @relation(fields: [userId], references: [id])
+  directionId String
+  content     Json                 // структурированный контент шага 1 (валидируется той же Zod-схемой, что и форма)
+  vacancyText String?              // опционально вставленный текст вакансии для адаптации
+  atsScore    Float?
+  suggestions ResumeAiSuggestion[]
+  updatedAt   DateTime             @updatedAt
+}
+
+model ResumeAiSuggestion {
+  id        String           @id @default(uuid())
+  resumeId  String
+  resume    Resume           @relation(fields: [resumeId], references: [id])
+  fieldPath String           // какое поле резюме касается
+  message   String
+  status    SuggestionStatus // PENDING | APPLIED | DISMISSED
+}
+
+enum SuggestionStatus {
+  PENDING
+  APPLIED
+  DISMISSED
+}
+
+// --- hh.ru кэш ---
+model VacancySnapshot {
+  id          String    @id @default(uuid())
+  hhId        String    @unique
+  directionId String
+  direction   Direction @relation(fields: [directionId], references: [id])
+  title       String
+  skills      String[]
+  salaryFrom  Int?
+  salaryTo    Int?
+  fetchedAt   DateTime  @default(now())
+}
+
+// --- Подготовка к собеседованиям ---
+model QuestionBank {
+  id          String       @id @default(uuid())
+  directionId String
+  type        QuestionType // BEHAVIORAL | TECHNICAL | CODING
+  topic       String       // привязано к Skill.title для персонализации
+  prompt      String
+  isGenerated Boolean      @default(false) // true = попало сюда из LLM-генерации, а не из кураторского набора
+  codingTask  CodingTask?
+}
+
+enum QuestionType {
+  BEHAVIORAL
+  TECHNICAL
+  CODING
+}
+
+model CodingTask {
+  id                String       @id @default(uuid())
+  questionId        String       @unique
+  question          QuestionBank @relation(fields: [questionId], references: [id])
+  starterCode       String
+  testCases         Json
+  referenceSolution String
+}
+
+model InterviewSession {
+  id          String          @id @default(uuid())
+  userId      String
+  user        User            @relation(fields: [userId], references: [id])
+  directionId String
+  type        QuestionType
+  startedAt   DateTime        @default(now())
+  finishedAt  DateTime?
+  answers     SessionAnswer[]
+}
+
+model SessionAnswer {
+  id             String           @id @default(uuid())
+  sessionId      String
+  session        InterviewSession @relation(fields: [sessionId], references: [id])
+  questionId     String
+  answerText     String?
+  codeSubmission Json?            // код + результат тестов из sandbox
+  score          Float?
+  feedback       String?          // ответ LLM (STAR-разбор или code review)
+}

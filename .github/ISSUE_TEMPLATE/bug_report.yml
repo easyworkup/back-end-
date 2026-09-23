@@ -1,0 +1,19 @@
+name: Баг
+description: Сообщить о найденной ошибке
+labels: [bug]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: Что произошло
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Что ожидалось
+  - type: textarea
+    id: repro
+    attributes:
+      label: Как воспроизвести
+      description: Шаги, минимальный запрос/эндпоинт, если применимо
