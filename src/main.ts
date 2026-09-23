@@ -10,7 +10,9 @@ patchNestJsSwagger();
 export function buildOpenApiDocument(app: Parameters<typeof SwaggerModule.createDocument>[0]) {
   const config = new DocumentBuilder()
     .setTitle("EasyWorkUp API")
-    .setDescription("Резюме, роадмап, подготовка к собеседованиям — контракт для генерации фронтового клиента (orval)")
+    .setDescription(
+      "Резюме, роадмап, подготовка к собеседованиям — контракт для генерации фронтового клиента (orval)"
+    )
     .setVersion("0.1.0")
     .build();
 
@@ -27,10 +29,13 @@ async function bootstrap() {
 
   const port = process.env.PORT ?? 4000;
   await app.listen(port);
-  // eslint-disable-next-line no-console
+
   console.log(`easyworkup API запущен на http://localhost:${port}/api`);
-  // eslint-disable-next-line no-console
+
   console.log(`OpenAPI-спека: http://localhost:${port}/api-json`);
 }
 
-bootstrap();
+// Не поднимаем сервер, когда файл импортируют (например, scripts/generate-openapi.ts).
+if (require.main === module) {
+  void bootstrap();
+}
