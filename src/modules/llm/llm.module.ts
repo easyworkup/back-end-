@@ -15,6 +15,9 @@ import { LLM_PROVIDER } from "./llm-provider.interface";
         async complete() {
           throw new Error("LLM provider not configured");
         },
+        // Заглушка: реального провайдера ещё нет, а сигнатура
+        // LlmProvider.stream (AsyncIterable<string>) требует генератор.
+        // eslint-disable-next-line require-yield
         async *stream() {
           throw new Error("LLM provider not configured");
         },
