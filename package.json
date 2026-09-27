@@ -8,7 +8,7 @@
     "start": "node dist/main.js",
     "lint": "eslint \"src/**/*.ts\"",
     "format": "prettier --write \"src/**/*.{ts,json}\"",
-    "test": "jest --passWithNoTests",
+    "test": "jest --runInBand",
     "prisma": "prisma",
     "generate:openapi": "ts-node -r tsconfig-paths/register src/scripts/generate-openapi.ts",
     "prepare": "husky"
@@ -61,10 +61,19 @@
       "ts"
     ],
     "rootDir": "src",
-    "testRegex": ".*.spec.ts$",
+    "testRegex": ".*\\.spec\\.[jt]s$",
     "transform": {
-      "^.+.ts$": "ts-jest"
+      "^.+\\.ts$": "ts-jest"
     },
     "testEnvironment": "node"
+  },
+  "packageManager": "pnpm@9.15.9",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@prisma/client",
+      "@prisma/engines",
+      "msgpackr-extract",
+      "prisma"
+    ]
   }
 }

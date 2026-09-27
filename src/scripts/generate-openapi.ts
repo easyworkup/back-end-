@@ -12,12 +12,15 @@ import { AppModule } from "../app.module";
 import { buildOpenApiDocument } from "../main";
 
 async function main() {
-  const app = await NestFactory.create(AppModule, { logger: false });
+  const app = await NestFactory.create(AppModule, { logger: false, abortOnError: false });
+  app.setGlobalPrefix("api");
   const document = buildOpenApiDocument(app);
   writeFileSync("openapi.json", JSON.stringify(document, null, 2));
   await app.close();
-  // eslint-disable-next-line no-console
   console.log("openapi.json сгенерирован");
 }
 
-main();
+void main().catch((error: unknown) => {
+  console.error(error);
+  process.exitCode = 1;
+});

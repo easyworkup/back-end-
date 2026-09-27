@@ -2,17 +2,21 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
   pull_request:
-    branches: [main]
+    branches: [main, dev]
+
+permissions:
+  contents: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     services:
       postgres:
@@ -39,14 +43,16 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: pnpm/action-setup@v4
         with:
-          version: 9
+          version: 9.15.9
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
 
       - name: Install dependencies
@@ -73,25 +79,23 @@ jobs:
         with:
           name: openapi
           path: openapi.json
+          if-no-files-found: error
+          retention-days: 14
 
   deploy:
     needs: build
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    concurrency:
+      group: production-deploy
+      cancel-in-progress: false
+    env:
+      COOLIFY_DEPLOY_WEBHOOK: ${{ secrets.COOLIFY_DEPLOY_WEBHOOK }}
     steps:
-      # Прод — VPS через Coolify (см. ТЗ, раздел «Технологический стек»). Coolify
-      # умеет билдить и деплоить по вебхуку на пуш — секрет COOLIFY_DEPLOY_WEBHOOK
-      # нужно добавить в Settings → Secrets and variables → Actions этого репозитория
-      # (Coolify → приложение → Webhooks выдаёт URL). Пока секрета нет, шаг просто
-      # ничего не делает, чтобы не ронять CI на неготовой инфраструктуре.
       - name: Trigger Coolify deploy
         if: env.COOLIFY_DEPLOY_WEBHOOK != ''
-        env:
-          COOLIFY_DEPLOY_WEBHOOK: ${{ secrets.COOLIFY_DEPLOY_WEBHOOK }}
-        run: curl -fsSL -X POST "$COOLIFY_DEPLOY_WEBHOOK"
-
-      - name: Skip (no webhook configured yet)
+        run: curl --fail --silent --show-error --max-time 60 -X POST "$COOLIFY_DEPLOY_WEBHOOK"
+      - name: Skip unconfigured deployment
         if: env.COOLIFY_DEPLOY_WEBHOOK == ''
-        env:
-          COOLIFY_DEPLOY_WEBHOOK: ${{ secrets.COOLIFY_DEPLOY_WEBHOOK }}
-        run: echo "COOLIFY_DEPLOY_WEBHOOK не задан — деплой пропущен, см. комментарий выше"
+        run: echo 'Deployment skipped because COOLIFY_DEPLOY_WEBHOOK is not configured.'
