@@ -43,7 +43,7 @@ jobs:
       JWT_REFRESH_SECRET: ci-secret-2
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
 
@@ -96,7 +96,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: easyworkup/Frontend
           # Immutable consumer revision; update through a reviewed integration PR.
