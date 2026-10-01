@@ -90,8 +90,42 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  deploy:
+  api-client:
+    name: Frontend contract compatibility
     needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: easyworkup/Frontend
+          # Immutable consumer revision; update through a reviewed integration PR.
+          ref: 59c814b2cc2cd05b75a9f29fdd6a0877b6856941
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: openapi-${{ github.sha }}
+          path: candidate-contract
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Verify and compile exact candidate contract
+        env:
+          API_OPENAPI_URL: candidate-contract/openapi.json
+          API_OPENAPI_MANIFEST: candidate-contract/openapi-source.json
+        run: |
+          pnpm verify:contract
+          pnpm codegen
+          pnpm typecheck
+          pnpm test:contract
+
+  deploy:
+    needs: [build, api-client]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 5
