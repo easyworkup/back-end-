@@ -2,17 +2,22 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
   pull_request:
-    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review, edited]
+    branches: [main, dev]
+
+permissions:
+  contents: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     services:
       postgres:
@@ -39,14 +44,16 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: pnpm/action-setup@v4
         with:
-          version: 9
+          version: 9.15.9
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
 
       - name: Install dependencies
@@ -66,32 +73,71 @@ jobs:
 
       # Публикуем openapi.json артефактом — фронт может забрать его в своей CI
       # для codegen, не поднимая бэк целиком.
-      - name: Generate OpenAPI spec
-        run: pnpm generate:openapi
+      - name: Verify fresh and populated database migrations
+        run: pnpm test:db
+        env:
+          TEST_DATABASE_URL: ${{ env.DATABASE_URL }}
+
+      - name: Generate OpenAPI spec (no infrastructure configuration)
+        run: env -u DATABASE_URL -u REDIS_URL -u JWT_ACCESS_SECRET -u JWT_REFRESH_SECRET pnpm generate:openapi
 
       - uses: actions/upload-artifact@v4
         with:
-          name: openapi
-          path: openapi.json
+          name: openapi-${{ github.sha }}
+          path: |
+            openapi.json
+            openapi-source.json
+          if-no-files-found: error
+          retention-days: 14
+
+  api-client:
+    name: Frontend contract compatibility
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: easyworkup/Frontend
+          # Immutable consumer revision; update through a reviewed integration PR.
+          ref: 59c814b2cc2cd05b75a9f29fdd6a0877b6856941
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: openapi-${{ github.sha }}
+          path: candidate-contract
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Verify and compile exact candidate contract
+        env:
+          API_OPENAPI_URL: candidate-contract/openapi.json
+          API_OPENAPI_MANIFEST: candidate-contract/openapi-source.json
+        run: |
+          pnpm verify:contract
+          pnpm codegen
+          pnpm typecheck
+          pnpm test:contract
 
   deploy:
-    needs: build
+    needs: [build, api-client]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    concurrency:
+      group: production-deploy
+      cancel-in-progress: false
+    env:
+      COOLIFY_DEPLOY_WEBHOOK: ${{ secrets.COOLIFY_DEPLOY_WEBHOOK }}
     steps:
-      # Прод — VPS через Coolify (см. ТЗ, раздел «Технологический стек»). Coolify
-      # умеет билдить и деплоить по вебхуку на пуш — секрет COOLIFY_DEPLOY_WEBHOOK
-      # нужно добавить в Settings → Secrets and variables → Actions этого репозитория
-      # (Coolify → приложение → Webhooks выдаёт URL). Пока секрета нет, шаг просто
-      # ничего не делает, чтобы не ронять CI на неготовой инфраструктуре.
       - name: Trigger Coolify deploy
         if: env.COOLIFY_DEPLOY_WEBHOOK != ''
-        env:
-          COOLIFY_DEPLOY_WEBHOOK: ${{ secrets.COOLIFY_DEPLOY_WEBHOOK }}
-        run: curl -fsSL -X POST "$COOLIFY_DEPLOY_WEBHOOK"
-
-      - name: Skip (no webhook configured yet)
+        run: curl --fail --silent --show-error --max-time 60 -X POST "$COOLIFY_DEPLOY_WEBHOOK"
+      - name: Skip unconfigured deployment
         if: env.COOLIFY_DEPLOY_WEBHOOK == ''
-        env:
-          COOLIFY_DEPLOY_WEBHOOK: ${{ secrets.COOLIFY_DEPLOY_WEBHOOK }}
-        run: echo "COOLIFY_DEPLOY_WEBHOOK не задан — деплой пропущен, см. комментарий выше"
+        run: echo 'Deployment skipped because COOLIFY_DEPLOY_WEBHOOK is not configured.'

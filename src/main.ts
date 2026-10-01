@@ -1,5 +1,6 @@
 import { NestFactory } from "@nestjs/core";
-import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
+import { SwaggerModule } from "@nestjs/swagger";
+import { buildContractDocument } from "./contracts/openapi";
 import { patchNestJsSwagger } from "nestjs-zod";
 import { AppModule } from "./app.module";
 
@@ -7,14 +8,8 @@ import { AppModule } from "./app.module";
 // а не в пустые объекты — на этом и держится вся генерация клиента на фронте.
 patchNestJsSwagger();
 
-export function buildOpenApiDocument(app: Parameters<typeof SwaggerModule.createDocument>[0]) {
-  const config = new DocumentBuilder()
-    .setTitle("EasyWorkUp API")
-    .setDescription("Резюме, роадмап, подготовка к собеседованиям — контракт для генерации фронтового клиента (orval)")
-    .setVersion("0.1.0")
-    .build();
-
-  return SwaggerModule.createDocument(app, config);
+export function buildOpenApiDocument(_app?: Parameters<typeof SwaggerModule.createDocument>[0]) {
+  return buildContractDocument();
 }
 
 async function bootstrap() {
@@ -27,10 +22,13 @@ async function bootstrap() {
 
   const port = process.env.PORT ?? 4000;
   await app.listen(port);
-  // eslint-disable-next-line no-console
+
   console.log(`easyworkup API запущен на http://localhost:${port}/api`);
-  // eslint-disable-next-line no-console
+
   console.log(`OpenAPI-спека: http://localhost:${port}/api-json`);
 }
 
-bootstrap();
+// Не поднимаем сервер, когда файл импортируют (например, scripts/generate-openapi.ts).
+if (require.main === module) {
+  void bootstrap();
+}

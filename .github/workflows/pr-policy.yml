@@ -1,0 +1,33 @@
+name: PR policy
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+permissions:
+  contents: read
+concurrency:
+  group: pr-policy-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  branch-policy:
+    name: PR branch policy
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # Read event metadata only; never check out or execute code from a fork here.
+      - name: Check pull request destination and release source
+        shell: bash
+        run: |
+          node <<'NODE'
+          const { pull_request: pr, repository } = JSON.parse(
+            require('node:fs').readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8')
+          );
+          const allowed = pr.base.ref === 'dev' || (
+            pr.base.ref === 'main' && pr.head.ref === 'dev' &&
+            pr.head.repo?.full_name === repository.full_name
+          );
+          if (!allowed) {
+            console.error('Changes must target dev. Only dev from this repository may target main.');
+            process.exit(1);
+          }
+          console.log('Pull request follows the dev -> main policy.');
+          NODE

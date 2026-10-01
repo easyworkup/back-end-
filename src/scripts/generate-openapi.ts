@@ -7,17 +7,31 @@
  */
 import "reflect-metadata";
 import { writeFileSync } from "fs";
-import { NestFactory } from "@nestjs/core";
-import { AppModule } from "../app.module";
-import { buildOpenApiDocument } from "../main";
+import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
+import { buildContractDocument, CONTRACT_VERSION } from "../contracts/openapi";
 
 async function main() {
-  const app = await NestFactory.create(AppModule, { logger: false });
-  const document = buildOpenApiDocument(app);
-  writeFileSync("openapi.json", JSON.stringify(document, null, 2));
-  await app.close();
-  // eslint-disable-next-line no-console
+  const content = JSON.stringify(buildContractDocument(), null, 2) + "\n";
+  writeFileSync("openapi.json", content);
+  writeFileSync(
+    "openapi-source.json",
+    JSON.stringify(
+      {
+        contractVersion: CONTRACT_VERSION,
+        sourceRevision: execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim(),
+        dirty:
+          execFileSync("git", ["status", "--porcelain"], { encoding: "utf8" }).trim().length > 0,
+        sha256: createHash("sha256").update(content).digest("hex"),
+      },
+      null,
+      2
+    ) + "\n"
+  );
   console.log("openapi.json сгенерирован");
 }
 
-main();
+void main().catch((error: unknown) => {
+  console.error(error);
+  process.exitCode = 1;
+});

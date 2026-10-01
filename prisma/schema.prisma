@@ -9,18 +9,34 @@ datasource db {
 
 // --- Пользователи и направления ---
 model User {
-  id           String             @id @default(uuid())
-  email        String             @unique
-  passwordHash String
-  createdAt    DateTime           @default(now())
-  resumes      Resume[]
-  roadmaps     UserRoadmap[]
-  sessions     InterviewSession[]
+  fullName          String?
+  field             String               @default("it")
+  directionId       String?
+  direction         Direction?           @relation(fields: [directionId], references: [id], onDelete: Restrict)
+  remote            Boolean              @default(true)
+  city              String?
+  onboardingSkipped Boolean              @default(false)
+  updatedAt         DateTime             @default(now()) @updatedAt
+  schedule          LearningDay[]
+  resetTokens       PasswordResetToken[]
+  jobs              BackgroundJob[]
+  id                String               @id @default(uuid())
+  email             String               @unique
+  passwordHash      String
+  createdAt         DateTime             @default(now())
+  resumes           Resume[]
+  roadmaps          UserRoadmap[]
+  sessions          InterviewSession[]
 }
 
 model Direction {
-  id        String            @id @default(uuid())
-  slug      String            @unique // "frontend", "backend", "devops"...
+  users     User[]
+  resumes   Resume[]
+  roadmaps  UserRoadmap[]
+  questions QuestionBank[]
+  sessions  InterviewSession[]
+  id        String             @id @default(uuid())
+  slug      String             @unique // "frontend", "backend", "devops"...
   title     String
   skills    Skill[]
   vacancies VacancySnapshot[]
@@ -28,35 +44,52 @@ model Direction {
 
 // --- Роадмап ---
 model Skill {
-  id          String   @id @default(uuid())
+  progress    UserSkillProgress[]
+  questions   QuestionBank[]
+  sourceUrl   String?
+  license     String?
+  id          String              @id @default(uuid())
   directionId String
-  direction   Direction @relation(fields: [directionId], references: [id])
+  direction   Direction           @relation(fields: [directionId], references: [id])
   title       String
-  parentId    String?  // дерево навыков (roadmap.sh-структура)
-  parent      Skill?   @relation("SkillTree", fields: [parentId], references: [id])
-  children    Skill[]  @relation("SkillTree")
+  parentId    String? // дерево навыков (roadmap.sh-структура)
+  parent      Skill?              @relation("SkillTree", fields: [parentId], references: [id])
+  children    Skill[]             @relation("SkillTree")
   hhKeywords  String[] // ключевые слова для сопоставления с hh.ru
-  demandScore Float?   // доля вакансий с этим навыком, считается ETL'ом
+  demandScore Float? // доля вакансий с этим навыком, считается ETL'ом
   tasks       RoadmapTask[]
+
+  @@index([directionId])
+  @@index([parentId])
 }
 
 model UserRoadmap {
+  direction   Direction           @relation(fields: [directionId], references: [id], onDelete: Restrict)
   id          String              @id @default(uuid())
   userId      String
-  user        User                @relation(fields: [userId], references: [id])
+  user        User                @relation(fields: [userId], references: [id], onDelete: Cascade)
   directionId String
   progress    UserSkillProgress[]
   tasks       UserTaskProgress[]
   createdAt   DateTime            @default(now())
+
+  @@unique([userId, directionId])
+  @@index([directionId])
 }
 
 model UserSkillProgress {
-  id        String      @id @default(uuid())
-  roadmapId String
-  roadmap   UserRoadmap @relation(fields: [roadmapId], references: [id])
-  skillId   String
-  status    SkillStatus // NONE | PARTIAL | DONE
-  source    String?     // "resume-match" | "manual" | "interview-result"
+  skill           Skill       @relation(fields: [skillId], references: [id], onDelete: Restrict)
+  updatedAt       DateTime    @default(now()) @updatedAt
+  sourceSessionId String?
+  id              String      @id @default(uuid())
+  roadmapId       String
+  roadmap         UserRoadmap @relation(fields: [roadmapId], references: [id], onDelete: Cascade)
+  skillId         String
+  status          SkillStatus // NONE | PARTIAL | DONE
+  source          String? // "resume-match" | "manual" | "interview-result"
+
+  @@unique([roadmapId, skillId])
+  @@index([skillId])
 }
 
 enum SkillStatus {
@@ -67,16 +100,19 @@ enum SkillStatus {
 
 // --- Задачи внутри узла роадмапа ---
 model RoadmapTask {
+  license          String?
   id               String             @id @default(uuid())
   skillId          String
   skill            Skill              @relation(fields: [skillId], references: [id])
   title            String
   taskType         TaskType // READING | VIDEO | EXERCISE | PROJECT
-  sourceLabel      String             // "react.dev", "Хекслет"...
+  sourceLabel      String // "react.dev", "Хекслет"...
   sourceUrl        String?
-  estimatedHours   Float              // калибруется джобом по факту ниже
+  estimatedHours   Float // калибруется джобом по факту ниже
   completionsCount Int                @default(0) // сколько раз задание отмечено выполненным — порог калибровки
   progress         UserTaskProgress[]
+
+  @@index([skillId])
 }
 
 enum TaskType {
@@ -87,36 +123,55 @@ enum TaskType {
 }
 
 model UserTaskProgress {
+  updatedAt   DateTime    @default(now()) @updatedAt
   id          String      @id @default(uuid())
   roadmapId   String
-  roadmap     UserRoadmap @relation(fields: [roadmapId], references: [id])
+  roadmap     UserRoadmap @relation(fields: [roadmapId], references: [id], onDelete: Cascade)
   taskId      String
   task        RoadmapTask @relation(fields: [taskId], references: [id])
   done        Boolean     @default(false)
   actualHours Float?
   completedAt DateTime?
+
+  @@unique([roadmapId, taskId])
+  @@index([taskId])
 }
 
 // --- Резюме ---
 model Resume {
+  direction   Direction            @relation(fields: [directionId], references: [id], onDelete: Restrict)
+  title       String               @default("Резюме")
+  revision    Int                  @default(1)
+  isActive    Boolean              @default(false)
+  createdAt   DateTime             @default(now())
+  revisions   ResumeRevision[]
   id          String               @id @default(uuid())
   userId      String
-  user        User                 @relation(fields: [userId], references: [id])
+  user        User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
   directionId String
-  content     Json                 // структурированный контент шага 1 (валидируется той же Zod-схемой, что и форма)
-  vacancyText String?              // опционально вставленный текст вакансии для адаптации
+  content     Json // структурированный контент шага 1 (валидируется той же Zod-схемой, что и форма)
+  vacancyText String? // опционально вставленный текст вакансии для адаптации
   atsScore    Float?
   suggestions ResumeAiSuggestion[]
   updatedAt   DateTime             @updatedAt
+
+  @@unique([userId, id])
+  @@index([userId, updatedAt])
+  @@index([directionId])
 }
 
 model ResumeAiSuggestion {
-  id        String           @id @default(uuid())
-  resumeId  String
-  resume    Resume           @relation(fields: [resumeId], references: [id])
-  fieldPath String           // какое поле резюме касается
-  message   String
-  status    SuggestionStatus // PENDING | APPLIED | DISMISSED
+  sourceRevision Int              @default(1)
+  proposedValue  Json?
+  createdAt      DateTime         @default(now())
+  id             String           @id @default(uuid())
+  resumeId       String
+  resume         Resume           @relation(fields: [resumeId], references: [id], onDelete: Cascade)
+  fieldPath      String // какое поле резюме касается
+  message        String
+  status         SuggestionStatus // PENDING | APPLIED | DISMISSED
+
+  @@index([resumeId, status])
 }
 
 enum SuggestionStatus {
@@ -127,6 +182,8 @@ enum SuggestionStatus {
 
 // --- hh.ru кэш ---
 model VacancySnapshot {
+  regionId    String?
+  isActive    Boolean   @default(true)
   id          String    @id @default(uuid())
   hhId        String    @unique
   directionId String
@@ -136,17 +193,30 @@ model VacancySnapshot {
   salaryFrom  Int?
   salaryTo    Int?
   fetchedAt   DateTime  @default(now())
+
+  @@index([directionId, regionId, fetchedAt])
 }
 
 // --- Подготовка к собеседованиям ---
 model QuestionBank {
-  id          String       @id @default(uuid())
-  directionId String
-  type        QuestionType // BEHAVIORAL | TECHNICAL | CODING
-  topic       String       // привязано к Skill.title для персонализации
-  prompt      String
-  isGenerated Boolean      @default(false) // true = попало сюда из LLM-генерации, а не из кураторского набора
-  codingTask  CodingTask?
+  direction        Direction         @relation(fields: [directionId], references: [id], onDelete: Restrict)
+  skillId          String?
+  skill            Skill?            @relation(fields: [skillId], references: [id], onDelete: Restrict)
+  sourceUrl        String?
+  license          String?
+  rubric           Json?
+  sessionQuestions SessionQuestion[]
+  answers          SessionAnswer[]
+  id               String            @id @default(uuid())
+  directionId      String
+  type             QuestionType // BEHAVIORAL | TECHNICAL | CODING
+  topic            String // привязано к Skill.title для персонализации
+  prompt           String
+  isGenerated      Boolean           @default(false) // true = попало сюда из LLM-генерации, а не из кураторского набора
+  codingTask       CodingTask?
+
+  @@index([directionId, type])
+  @@index([skillId])
 }
 
 enum QuestionType {
@@ -165,23 +235,127 @@ model CodingTask {
 }
 
 model InterviewSession {
-  id          String          @id @default(uuid())
-  userId      String
-  user        User            @relation(fields: [userId], references: [id])
-  directionId String
-  type        QuestionType
-  startedAt   DateTime        @default(now())
-  finishedAt  DateTime?
-  answers     SessionAnswer[]
+  direction      Direction         @relation(fields: [directionId], references: [id], onDelete: Restrict)
+  status         InterviewStatus   @default(IN_PROGRESS)
+  idempotencyKey String?
+  result         Json?
+  questions      SessionQuestion[]
+  id             String            @id @default(uuid())
+  userId         String
+  user           User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  directionId    String
+  type           QuestionType
+  startedAt      DateTime          @default(now())
+  finishedAt     DateTime?
+  answers        SessionAnswer[]
+
+  @@unique([userId, idempotencyKey])
+  @@index([userId, startedAt])
+  @@index([directionId])
 }
 
 model SessionAnswer {
-  id             String           @id @default(uuid())
-  sessionId      String
-  session        InterviewSession @relation(fields: [sessionId], references: [id])
-  questionId     String
-  answerText     String?
-  codeSubmission Json?            // код + результат тестов из sandbox
-  score          Float?
-  feedback       String?          // ответ LLM (STAR-разбор или code review)
+  question        QuestionBank     @relation(fields: [questionId], references: [id], onDelete: Restrict)
+  clientMessageId String?
+  createdAt       DateTime         @default(now())
+  id              String           @id @default(uuid())
+  sessionId       String
+  session         InterviewSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  questionId      String
+  answerText      String?
+  codeSubmission  Json? // код + результат тестов из sandbox
+  score           Float?
+  feedback        String? // ответ LLM (STAR-разбор или code review)
+
+  @@unique([sessionId, questionId])
+  @@unique([sessionId, clientMessageId])
+  @@index([questionId])
+}
+
+enum InterviewStatus {
+  IN_PROGRESS
+  COMPLETED
+  ABANDONED
+}
+
+enum JobStatus {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  FAILED
+}
+
+enum JobKind {
+  RESUME_REVIEW
+  RESUME_PDF
+  ROADMAP_SYNC
+  ANSWER_REVIEW
+  CODE_RUN
+}
+
+model LearningDay {
+  userId String
+  day    Int
+  hours  Float
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, day])
+}
+
+model PasswordResetToken {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model BackgroundJob {
+  id               String    @id @default(uuid())
+  userId           String
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind             JobKind
+  status           JobStatus @default(QUEUED)
+  idempotencyKey   String
+  resourceId       String?
+  resourceRevision Int?
+  result           Json?
+  errorCode        String?
+  attempts         Int       @default(0)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  expiresAt        DateTime?
+
+  @@unique([userId, kind, idempotencyKey])
+  @@index([status, createdAt])
+  @@index([expiresAt])
+}
+
+model ResumeRevision {
+  resumeId    String
+  revision    Int
+  resume      Resume   @relation(fields: [resumeId], references: [id], onDelete: Cascade)
+  content     Json
+  vacancyText String?
+  atsScore    Float?
+  createdAt   DateTime @default(now())
+
+  @@id([resumeId, revision])
+}
+
+model SessionQuestion {
+  sessionId  String
+  questionId String
+  position   Int
+  session    InterviewSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  question   QuestionBank     @relation(fields: [questionId], references: [id], onDelete: Restrict)
+
+  @@id([sessionId, questionId])
+  @@unique([sessionId, position])
+  @@index([questionId])
 }
