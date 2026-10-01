@@ -12,3 +12,5 @@ openapi.json
 *.log
 coverage/
 .DS_Store
+
+openapi-source.json

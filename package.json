@@ -11,7 +11,9 @@
     "test": "jest --runInBand",
     "prisma": "prisma",
     "generate:openapi": "ts-node -r tsconfig-paths/register src/scripts/generate-openapi.ts",
-    "prepare": "husky"
+    "prepare": "husky",
+    "test:db": "node --test tests/database.test.cjs",
+    "db:seed": "node prisma/seed/base/index.cjs"
   },
   "dependencies": {
     "@nestjs/common": "^10.4.0",
@@ -75,5 +77,8 @@
       "msgpackr-extract",
       "prisma"
     ]
+  },
+  "prisma": {
+    "seed": "node prisma/seed/base/index.cjs"
   }
 }

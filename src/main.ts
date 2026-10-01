@@ -1,5 +1,6 @@
 import { NestFactory } from "@nestjs/core";
-import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
+import { SwaggerModule } from "@nestjs/swagger";
+import { buildContractDocument } from "./contracts/openapi";
 import { patchNestJsSwagger } from "nestjs-zod";
 import { AppModule } from "./app.module";
 
@@ -7,16 +8,8 @@ import { AppModule } from "./app.module";
 // а не в пустые объекты — на этом и держится вся генерация клиента на фронте.
 patchNestJsSwagger();
 
-export function buildOpenApiDocument(app: Parameters<typeof SwaggerModule.createDocument>[0]) {
-  const config = new DocumentBuilder()
-    .setTitle("EasyWorkUp API")
-    .setDescription(
-      "Резюме, роадмап, подготовка к собеседованиям — контракт для генерации фронтового клиента (orval)"
-    )
-    .setVersion("0.1.0")
-    .build();
-
-  return SwaggerModule.createDocument(app, config);
+export function buildOpenApiDocument(_app?: Parameters<typeof SwaggerModule.createDocument>[0]) {
+  return buildContractDocument();
 }
 
 async function bootstrap() {
