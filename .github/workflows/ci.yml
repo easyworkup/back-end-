@@ -102,7 +102,7 @@ jobs:
           # Immutable consumer revision; update through a reviewed integration PR.
           ref: 59c814b2cc2cd05b75a9f29fdd6a0877b6856941
           persist-credentials: false
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           name: openapi-${{ github.sha }}
           path: candidate-contract
